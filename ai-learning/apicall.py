@@ -19,21 +19,36 @@ URL = "https://api.moonshot.cn/v1/chat/completions"
 MODEL = "kimi-k2.6"
 SYSTEM_PROMPT = "你是编程助手，擅长Python和AI工程化"
 
+# 速率限制：上次请求时间戳，用于控制请求间隔
+_last_request_time: Optional[float] = None
+MIN_REQUEST_INTERVAL = 5  # 两次请求之间最少间隔 5 秒
+
 
 def call_api_with_retry(
     url: str,
     headers: Optional[dict] = None,
     json: Optional[dict] = None,
     max_retry: int = 3,
-    timeout: float = 30.0,
+    timeout: float = 60.0,
     backoff: float = 1.0,
 ) -> dict:
     """带重试的 POST 请求封装。"""
+    global _last_request_time
+
+    # 速率限制：确保两次请求之间有足够间隔
+    if _last_request_time is not None:
+        elapsed = time.time() - _last_request_time
+        if elapsed < MIN_REQUEST_INTERVAL:
+            wait = MIN_REQUEST_INTERVAL - elapsed
+            logger.info("速率限制：等待 %.1f 秒...", wait)
+            time.sleep(wait)
+
     for attempt in range(1, max_retry + 1):
         try:
             logger.info("尝试第 %d 次请求...", attempt)
             response = requests.post(url, headers=headers, json=json, timeout=timeout)
             response.raise_for_status()
+            _last_request_time = time.time()
             return response.json()
         except requests.exceptions.RequestException as exc:
             logger.warning("请求失败: %s", exc)
